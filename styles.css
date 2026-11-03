@@ -101,12 +101,8 @@ body {
   transition: transform .12s;
 }
 .dot:hover { transform: scale(1.12); }
-.dot.on::after {
-  content: "";
-  position: absolute; inset: -4px;
-  border: 2px solid var(--ink);
-  border-radius: 50%;
-}
+.dot.on { outline: 2px solid var(--ink); outline-offset: 2px; }
+.dot:focus-visible { outline-color: #1971c2; }
 
 .sel {
   display: inline-flex; align-items: center; gap: 5px;
@@ -124,6 +120,25 @@ body {
   cursor: pointer;
 }
 .sel select:focus-visible { outline: 2px solid #1971c2; outline-offset: 1px; }
+
+/* ── 悬浮工具提示（JS 驱动的全局气泡，悬停 / 点击聚焦显示） ── */
+.tooltip {
+  position: fixed;
+  z-index: 70;
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: rgba(31, 35, 40, .93);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: .01em;
+  width: max-content;
+  max-width: 240px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .1s;
+}
+.tooltip.on { opacity: 1; }
 
 /* ── 底部操作条 ─────────────────────────────────────── */
 .hud {

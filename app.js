@@ -328,18 +328,18 @@
     if (mode === 'saving') {
       saveEl.classList.add('saving');
       saveEl.textContent = '保存中…';
-      saveEl.title = '正在写入本机浏览器存储';
+      saveEl.dataset.tip = '正在写入本机浏览器存储';
     } else if (mode === 'saved') {
       var d = new Date(ts || Date.now());
       saveEl.textContent = '已存本机 ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
-      saveEl.title = '内容已保存在这台设备的浏览器里，刷新或关掉再打开都还在；需要文件时再点导出';
+      saveEl.dataset.tip = '内容已保存在这台设备的浏览器里，刷新或关掉再打开都还在；需要文件时再点导出';
     } else if (mode === 'error') {
       saveEl.classList.add('error');
       saveEl.textContent = '本机存储已满';
-      saveEl.title = '浏览器本地存储写不进去了，请先点「导出 PNG/PDF」或清空部分内容，否则刷新会丢失';
+      saveEl.dataset.tip = '浏览器本地存储写不进去了，请先点「导出 PNG/PDF」或清空部分内容，否则刷新会丢失';
     } else {
       saveEl.textContent = '自动保存已开启';
-      saveEl.title = '内容自动保存在这台设备的浏览器里，刷新不丢；需要文件时再点导出';
+      saveEl.dataset.tip = '内容自动保存在这台设备的浏览器里，刷新不丢；需要文件时再点导出';
     }
   }
 
@@ -977,6 +977,62 @@
   resize();
   syncButtons();
   canvas.style.cursor = cursorFor(state.tool);
+
+  /* ══ 悬浮工具提示：悬停 / 点击聚焦图标即显示名称与快捷键 ══ */
+  (function () {
+    if (!matchMedia('(hover: hover)').matches) return; // 触屏设备不启用
+    var tipEl = null, cur = null;
+
+    function ensure() {
+      if (!tipEl) {
+        tipEl = document.createElement('div');
+        tipEl.className = 'tooltip';
+        tipEl.setAttribute('role', 'tooltip');
+        document.body.appendChild(tipEl);
+      }
+      return tipEl;
+    }
+
+    function showFor(el) {
+      var text = el.getAttribute('data-tip');
+      if (!text) return;
+      var t = ensure();
+      t.textContent = text;
+      t.style.left = '-9999px';
+      t.style.top = '0px';
+      t.classList.add('on');
+      var r = el.getBoundingClientRect();
+      var tw = t.offsetWidth, th = t.offsetHeight;
+      var x = Math.min(Math.max(8, r.left + r.width / 2 - tw / 2), window.innerWidth - tw - 8);
+      var y = el.closest('.dock') ? (r.bottom + 7) : (r.top - th - 7); // 顶栏向下弹，底栏向上弹
+      t.style.left = x + 'px';
+      t.style.top = Math.max(4, y) + 'px';
+      cur = el;
+    }
+
+    function hide() {
+      if (tipEl) tipEl.classList.remove('on');
+      cur = null;
+    }
+
+    document.addEventListener('mouseover', function (e) {
+      var el = e.target.closest && e.target.closest('[data-tip]');
+      if (el && el !== cur) showFor(el);
+      else if (!el) hide();
+    });
+    document.addEventListener('mouseout', function (e) {
+      if (cur && !e.relatedTarget) hide(); // 鼠标离开窗口
+    });
+    document.addEventListener('focusin', function (e) {
+      var el = e.target.closest && e.target.closest('[data-tip]');
+      if (el) showFor(el); // 键盘 Tab 或点击聚焦时同样显示
+    });
+    document.addEventListener('focusout', hide);
+    document.addEventListener('pointerdown', function (e) {
+      if (!(e.target.closest && e.target.closest('[data-tip]'))) hide();
+    });
+    window.addEventListener('blur', hide);
+  })();
 
   /* ══ 自检钩子（?test=1）═══════════════════════════════ */
   if (/[?&]test=1/.test(location.search)) runTests();
