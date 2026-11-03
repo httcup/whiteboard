@@ -178,6 +178,22 @@
         }
         break;
       }
+      case 'image': {
+        var ix = Math.min(s.x, s.x + s.w), iy = Math.min(s.y, s.y + s.h);
+        var iw = Math.abs(s.w), ih = Math.abs(s.h);
+        if (iw < 1 || ih < 1) break;
+        var im = getImg(s.src);
+        if (im.complete && im.naturalWidth > 0) {
+          c.drawImage(im, ix, iy, iw, ih);
+          c.strokeStyle = 'rgba(0,0,0,.10)';
+          c.lineWidth = 1;
+          c.strokeRect(ix + .5, iy + .5, iw - 1, ih - 1);
+        } else {
+          c.fillStyle = '#f4f5f7';
+          c.fillRect(ix, iy, iw, ih);
+        }
+        break;
+      }
       case 'note': {
         var nx = Math.min(s.x, s.x + s.w), ny = Math.min(s.y, s.y + s.h);
         var nw = Math.abs(s.w), nh = Math.abs(s.h);
@@ -259,6 +275,7 @@
       case 'ellipse':
       case 'diamond':
       case 'note':
+      case 'image':
         return {
           x: Math.min(s.x, s.x + s.w), y: Math.min(s.y, s.y + s.h),
           w: Math.abs(s.w), h: Math.abs(s.h)
@@ -449,6 +466,7 @@
         state.selected = s;
         if (s) {
           if ((s.t === 'note' || s.t === 'text') && e.detail >= 2) {
+            if (e.cancelable) e.preventDefault(); // 阻止兼容 mousedown 抢焦点，否则编辑器会立刻失焦关闭
             openEditor(s, sp);
             draw();
             return;
@@ -472,6 +490,7 @@
         state.drag = { mode: 'shape', preview: { id: uid(), t: state.tool, color: state.color, size: state.width, x: w.x, y: w.y, w: 0, h: 0 } };
         break;
       case 'text': {
+        if (e.cancelable) e.preventDefault(); // 关键：阻止兼容 mousedown 的默认抢焦行为，否则编辑器刚聚焦就被 blur 关闭，永远打不了字
         snapshot();
         var sh = { id: uid(), t: 'text', color: state.color, fs: state.fontSize, x: w.x, y: w.y, text: '' };
         state.shapes.push(sh);
@@ -480,6 +499,7 @@
         break;
       }
       case 'note': {
+        if (e.cancelable) e.preventDefault(); // 同上
         snapshot();
         var nt = { id: uid(), t: 'note', bg: state.noteColor, x: w.x, y: w.y, w: 168, h: 104, text: '' };
         state.shapes.push(nt);
@@ -835,6 +855,98 @@
     toastTimer = setTimeout(function () { el.classList.remove('on'); }, 2400);
   }
 
+  /* ══ 粘贴 / 拖入图片 ══════════════════════════════════ */
+  var imgCache = {};
+  function getImg(src) {
+    var im = imgCache[src];
+    if (!im) {
+      var keys = Object.keys(imgCache);
+      if (keys.length > 40) delete imgCache[keys[0]]; // 简单缓存上限，防内存膨胀
+      im = imgCache[src] = new Image();
+      im.onload = function () { draw(); }; // 加载完成后补一帧
+      im.src = src;
+    }
+    return im;
+  }
+
+  function insertImageBlob(blob, worldPt) {
+    if (!blob || !blob.type || blob.type.indexOf('image/') !== 0) return;
+    var url = URL.createObjectURL(blob);
+    var probe = new Image();
+    probe.onload = function () {
+      URL.revokeObjectURL(url);
+      // 存储前压到最大 640px：截图/照片直接存 dataURL 很容易撑爆 localStorage
+      var MAX_STORE = 640;
+      var sc = Math.min(1, MAX_STORE / Math.max(probe.naturalWidth, probe.naturalHeight));
+      var cw = Math.max(1, Math.round(probe.naturalWidth * sc));
+      var chh = Math.max(1, Math.round(probe.naturalHeight * sc));
+      var cv = document.createElement('canvas');
+      cv.width = cw; cv.height = chh;
+      var c = cv.getContext('2d');
+      c.drawImage(probe, 0, 0, cw, chh);
+      var src = cv.toDataURL('image/png'); // 先试 PNG（保留透明）
+      if (src.length > 380000) {           // 太大则白底 JPEG 兜底
+        c.fillStyle = '#fff';
+        c.fillRect(0, 0, cw, chh);
+        c.drawImage(probe, 0, 0, cw, chh);
+        src = cv.toDataURL('image/jpeg', 0.82);
+      }
+
+      // 画布里的显示尺寸：长边约 300 个世界单位，和便签大小协调
+      var DISPLAY = 300;
+      var dw = DISPLAY * cw / Math.max(cw, chh);
+      var dh = DISPLAY * chh / Math.max(cw, chh);
+      var cp = worldPt || toWorld(cssSize().w / 2, cssSize().h / 2);
+      // 连续粘贴时错开摆放，避免完全重叠
+      for (var i = 0; i < state.shapes.length; i++) {
+        var b = state.shapes[i];
+        if (b.t === 'image' && Math.abs(b.x - (cp.x - dw / 2)) < 8 && Math.abs(b.y - (cp.y - dh / 2)) < 8) {
+          cp.x += 26; cp.y += 26;
+          i = -1; // 重新检查，防止和错位后的图形再重叠
+        }
+      }
+      snapshot();
+      var sh = { id: uid(), t: 'image', src: src, x: cp.x - dw / 2, y: cp.y - dh / 2, w: dw, h: dh };
+      state.shapes.push(sh);
+      state.selected = sh;
+      draw(); persist(); syncButtons();
+      toast('已添加图片，可用「选择」拖动或删除');
+    };
+    probe.onerror = function () {
+      URL.revokeObjectURL(url);
+      toast('图片读取失败');
+    };
+    probe.src = url;
+  }
+
+  document.addEventListener('paste', function (e) {
+    var items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].type && items[i].type.indexOf('image/') === 0) {
+        var f = items[i].getAsFile();
+        if (f) { e.preventDefault(); insertImageBlob(f); }
+        return;
+      }
+    }
+  });
+
+  document.addEventListener('dragover', function (e) {
+    if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0) e.preventDefault();
+  });
+  document.addEventListener('drop', function (e) {
+    var dt = e.dataTransfer;
+    if (!dt || Array.prototype.indexOf.call(dt.types || [], 'Files') < 0) return;
+    e.preventDefault(); // 阻止浏览器直接打开图片文件
+    var f = dt.files && dt.files[0];
+    if (f && /^image\//.test(f.type)) {
+      var sp = localPt(e);
+      insertImageBlob(f, toWorld(sp.x, sp.y));
+    } else {
+      toast('只能放入图片文件');
+    }
+  });
+
   /* ══ 事件绑定 ════════════════════════════════════════ */
   canvas.addEventListener('pointerdown', function (e) {
     try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 部分浏览器不支持 */ }
@@ -917,6 +1029,7 @@
 
   editor.addEventListener('keydown', function (e) {
     e.stopPropagation();
+    if (e.isComposing) return; // 中文输入法组词中：回车/ESC 先交给输入法，不要提交或关闭编辑器
     if (e.key === 'Enter') { e.preventDefault(); closeEditor(true); }
     else if (e.key === 'Escape') { e.preventDefault(); closeEditor(false); }
   });
