@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>白板 · 全屏手绘与流程图</title>
+<meta name="description" content="打开就是全屏白板：画笔、直线、箭头、矩形、椭圆、菱形、文字、便签，无限画布可平移缩放，导出 PNG 与 PDF。纯本地运行，不上传任何内容。">
+<meta name="theme-color" content="#ffffff">
+<meta name="color-scheme" content="light">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231f2328'/%3E%3Cpath d='M14 44c8-2 14-8 20-16 4-6 8-9 14-10' stroke='%23fff' stroke-width='4' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='48' cy='17' r='3.4' fill='%23fff'/%3E%3C/svg%3E">
+<meta property="og:type" content="website">
+<meta property="og:title" content="白板 · 全屏手绘与流程图">
+<meta property="og:description" content="打开就是全屏白板，无限画布，导出 PNG 与 PDF。纯本地运行。">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<canvas id="board" aria-label="白板画布"></canvas>
+<input id="editor" class="editor" type="text" aria-label="编辑文字" autocomplete="off" spellcheck="false" hidden>
+
+<header class="dock" id="dock">
+  <div class="grp tools" role="toolbar" aria-label="工具">
+    <button class="tbtn on" type="button" data-tool="pen" title="画笔 (P)" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19l7-7 3 3-7 7-3-3Z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5Z"/><circle cx="11" cy="11" r="1.6"/></svg></button>
+    <button class="tbtn" type="button" data-tool="select" title="选择 / 移动 (V)" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 8-6.5 1.5L10 19 5 3Z"/></svg></button>
+    <button class="tbtn" type="button" data-tool="line" title="直线 (L)" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5"/></svg></button>
+    <button class="tbtn" type="button" data-tool="arrow" title="箭头 (A)" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5"/><path d="M12 5h7v7"/></svg></button>
+    <button class="tbtn" type="button" data-tool="rect" title="矩形 (R)" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2"/></svg></button>
+    <button class="tbtn" type="button" data-tool="ellipse" title="椭圆 (O)" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="8.5" ry="6"/></svg></button>
+    <button class="tbtn" type="button" data-tool="diamond" title="菱形 (D)" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l8 8-8 8-8-8 8-8Z"/></svg></button>
+    <button class="tbtn" type="button" data-tool="text" title="文字 (T)" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6V4h14v2"/><path d="M12 4v16"/><path d="M9 20h6"/></svg></button>
+    <button class="tbtn" type="button" data-tool="note" title="便签 (N)" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v11l-5 5H4V4Z"/><path d="M15 20v-5h5"/></svg></button>
+    <button class="tbtn" type="button" data-tool="eraser" title="橡皮 (E)" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 20-4.6-4.6a2 2 0 0 1 0-2.8l8-8a2 2 0 0 1 2.8 0l5 5a2 2 0 0 1 0 2.8L14 18"/><path d="M8.5 20H20"/></svg></button>
+    <button class="tbtn" type="button" data-tool="pan" title="平移画布 (H，或按住空格拖动)" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20"/><path d="m9 5 3-3 3 3M9 19l3 3 3-3M5 9 2 12l3 3M19 9l3 3-3 3"/></svg></button>
+  </div>
+
+  <span class="sep" aria-hidden="true"></span>
+
+  <div class="grp props" role="toolbar" aria-label="样式">
+    <div class="colors" id="colors" role="radiogroup" aria-label="颜色">
+      <button class="dot on" type="button" data-color="#1f2328" style="--c:#1f2328" aria-label="黑" aria-pressed="true"></button>
+      <button class="dot" type="button" data-color="#e03131" style="--c:#e03131" aria-label="红" aria-pressed="false"></button>
+      <button class="dot" type="button" data-color="#f08c00" style="--c:#f08c00" aria-label="橙" aria-pressed="false"></button>
+      <button class="dot" type="button" data-color="#2f9e44" style="--c:#2f9e44" aria-label="绿" aria-pressed="false"></button>
+      <button class="dot" type="button" data-color="#1971c2" style="--c:#1971c2" aria-label="蓝" aria-pressed="false"></button>
+      <button class="dot" type="button" data-color="#9c36b5" style="--c:#9c36b5" aria-label="紫" aria-pressed="false"></button>
+    </div>
+    <label class="sel" title="线条粗细"><span>粗细</span><select id="width">
+      <option value="2">2</option><option value="4" selected>4</option><option value="7">7</option><option value="11">11</option>
+    </select></label>
+    <label class="sel" title="文字字号"><span>字号</span><select id="font">
+      <option value="16">16</option><option value="22" selected>22</option><option value="32">32</option><option value="48">48</option>
+    </select></label>
+    <label class="sel" title="便签颜色"><span>便签</span><select id="noteColor">
+      <option value="#fff59d">黄</option><option value="#bbf7d0">绿</option><option value="#bfdbfe">蓝</option><option value="#fecaca">红</option>
+    </select></label>
+  </div>
+</header>
+
+<div class="hud" id="hud">
+  <button class="ib" id="undo" type="button" title="撤销 (Ctrl+Z)" aria-label="撤销"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h9a6 6 0 0 1 0 12h-3"/></svg></button>
+  <button class="ib" id="redo" type="button" title="重做 (Ctrl+Shift+Z)" aria-label="重做"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9h-9a6 6 0 0 0 0 12h3"/></svg></button>
+  <button class="ib" id="del" type="button" title="删除选中 (Delete)" aria-label="删除选中"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/></svg></button>
+  <button class="ib" id="fit" type="button" title="适应内容" aria-label="适应内容"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg></button>
+  <button class="ib" id="clear" type="button" title="清空白板" aria-label="清空"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19h14"/><path d="M8 15 15 8l4 4-7 7H8v-4Z"/><path d="M6 6l3 3"/></svg></button>
+  <span class="zoom" id="zoom">100%</span>
+  <span class="sep v" aria-hidden="true"></span>
+  <button class="btn" id="png" type="button">导出 PNG</button>
+  <button class="btn solid" id="pdf" type="button">导出 PDF</button>
+</div>
+
+<p class="tip" id="tip">滚轮缩放 · 空格拖动 · 双击编辑</p>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
