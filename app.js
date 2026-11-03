@@ -315,24 +315,66 @@
     $('redo').disabled = !state.redo.length;
   }
 
+  /* ── 自动保存到本机浏览器：改动后 320ms 落盘，关页面前强制落盘 ── */
   var saveTimer = 0;
-  function persist() {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(function () {
-      try {
-        localStorage.setItem(LS_KEY, JSON.stringify({ v: 1, shapes: state.shapes, view: state.view }));
-      } catch (e) { /* 超配额就跳过 */ }
-    }, 320);
+  var saveEl = null;
+
+  function pad2(n) { return String(n).padStart(2, '0'); }
+
+  function setSave(mode, ts) {
+    if (!saveEl) saveEl = $('save');
+    if (!saveEl) return;
+    saveEl.classList.remove('saving', 'error');
+    if (mode === 'saving') {
+      saveEl.classList.add('saving');
+      saveEl.textContent = '保存中…';
+      saveEl.title = '正在写入本机浏览器存储';
+    } else if (mode === 'saved') {
+      var d = new Date(ts || Date.now());
+      saveEl.textContent = '已存本机 ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+      saveEl.title = '内容已保存在这台设备的浏览器里，刷新或关掉再打开都还在；需要文件时再点导出';
+    } else if (mode === 'error') {
+      saveEl.classList.add('error');
+      saveEl.textContent = '本机存储已满';
+      saveEl.title = '浏览器本地存储写不进去了，请先点「导出 PNG/PDF」或清空部分内容，否则刷新会丢失';
+    } else {
+      saveEl.textContent = '自动保存已开启';
+      saveEl.title = '内容自动保存在这台设备的浏览器里，刷新不丢；需要文件时再点导出';
+    }
   }
+
+  function flushSave() {
+    clearTimeout(saveTimer);
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        v: 1, shapes: state.shapes, view: state.view, savedAt: Date.now()
+      }));
+      setSave('saved');
+      return true;
+    } catch (e) {
+      setSave('error');
+      return false;
+    }
+  }
+
+  function persist() {
+    setSave('saving');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSave, 320);
+  }
+
   function restore() {
+    var ts = 0;
     try {
       var d = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
       if (d && Array.isArray(d.shapes)) {
         state.shapes = d.shapes;
         if (d.view && typeof d.view.k === 'number') state.view = d.view;
         state.shapes.forEach(function (s) { if (s.id >= seq) seq = s.id + 1; });
+        ts = d.savedAt || 0;
       }
     } catch (e) { /* 忽略损坏数据 */ }
+    return ts;
   }
 
   /* ══ 文字编辑 ════════════════════════════════════════ */
@@ -923,7 +965,15 @@
     if (tip) tip.classList.add('hide');
   }, 6000);
 
-  restore();
+  // 关页面 / 切后台时立刻落盘，避免最后 320ms 的改动丢掉
+  window.addEventListener('pagehide', flushSave);
+  window.addEventListener('beforeunload', flushSave);
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) flushSave();
+  });
+
+  var restoredAt = restore();
+  setSave(state.shapes.length ? 'saved' : 'idle', restoredAt);
   resize();
   syncButtons();
   canvas.style.cursor = cursorFor(state.tool);
@@ -936,7 +986,8 @@
       state: state, draw: draw, drawShape: drawShape, bbox: bbox, hit: hit,
       snapshot: snapshot, undo: undo, redo: redo, toWorld: toWorld,
       contentBBox: contentBBox, renderContent: renderContent,
-      setTool: setTool, zlibDeflate: zlibDeflate, exportPNG: exportPNG, exportPDF: exportPDF
+      setTool: setTool, zlibDeflate: zlibDeflate, exportPNG: exportPNG, exportPDF: exportPDF,
+      persist: persist, flushSave: flushSave, restore: restore, setSave: setSave
     };
     var out = [];
     var queue = [];
@@ -1107,6 +1158,36 @@
         var raw = localStorage.getItem('board.v1');
         assert(raw && raw.indexOf('"t":"rect"') > 0, '应写入 localStorage');
       });
+    });
+
+    T('保存状态在界面上可见', function () {
+      state.shapes = [{ id: uid(), t: 'rect', color: '#000', size: 2, x: 0, y: 0, w: 10, h: 10 }];
+      persist();
+      var el = $('save');
+      assert(el.textContent.indexOf('保存中') >= 0, '改动后应立即显示「保存中」，实际: ' + el.textContent);
+      assert(el.classList.contains('saving'), '应有 saving 状态类');
+      return new Promise(function (r) { setTimeout(r, 700); }).then(function () {
+        assert(/已存本机 \d\d:\d\d/.test(el.textContent), '落盘后应显示「已存本机 时:分」，实际: ' + el.textContent);
+        assert(!el.classList.contains('saving'), 'saving 类应移除');
+      });
+    });
+
+    T('关页面前强制落盘（不等防抖）', function () {
+      localStorage.removeItem('board.v1');
+      state.shapes = [{ id: uid(), t: 'ellipse', color: '#1971c2', size: 3, x: 5, y: 5, w: 40, h: 30 }];
+      var ok = flushSave();
+      assert(ok === true, 'flushSave 应立即返回 true');
+      var raw = JSON.parse(localStorage.getItem('board.v1') || 'null');
+      assert(raw && raw.shapes && raw.shapes.length === 1, '应立即写入图形');
+      assert(raw.savedAt > 0, '应记录保存时间戳');
+    });
+
+    T('重新打开时恢复上次内容', function () {
+      state.shapes = [];
+      var ts = restore();
+      assert(state.shapes.length === 1, '应恢复 1 个图形，实际: ' + state.shapes.length);
+      assert(state.shapes[0].t === 'ellipse', '恢复的应是刚才的椭圆');
+      assert(ts > 0, '应带回上次保存时间');
     });
 
     (async function () {

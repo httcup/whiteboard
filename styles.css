@@ -169,6 +169,32 @@ body {
   user-select: none;
 }
 
+/* 自动保存状态 */
+.save {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  font-size: 11.5px;
+  color: #8a9199;
+  white-space: nowrap;
+  user-select: none;
+  transition: color .2s;
+}
+.save::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2f9e44;
+  flex: none;
+  transition: background .2s;
+}
+.save.saving { color: #b07200; }
+.save.saving::before { background: #f08c00; }
+.save.error { color: #e03131; }
+.save.error::before { background: #e03131; }
+
 .btn {
   font: inherit; font-size: 13px;
   padding: 7px 12px;
@@ -252,6 +278,8 @@ body {
     right: max(10px, env(safe-area-inset-right));
     transform: none;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px;
     animation: none;
   }
   .tip { display: none; }
@@ -262,6 +290,8 @@ body {
   .sel span { display: none; }
   .zoom { display: none; }
   .sep.v { display: none; }
+  .save { font-size: 0; gap: 0; padding: 0 4px; }
+  .save::before { width: 8px; height: 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
